@@ -1,11 +1,13 @@
 # ParrotApp
 
 A **personal media library manager** you run on your own machine. Point ParrotApp at
-folders on your disk and it scans, indexes and de-duplicates them, then lets you browse
+folders on your disk and it scans and indexes them, then lets you browse
 and play your photos, videos and music from a clean web interface — plus internet radio
 from a locally mirrored station directory.
 
 <img width="3024" height="1892" alt="ParrotApp" src="https://github.com/user-attachments/assets/b7eaa252-8925-478e-8b89-04bc36a437a1" />
+
+[More screenshots](screenshots.md)
 
 ## What it does
 
