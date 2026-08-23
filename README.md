@@ -47,7 +47,22 @@ Ready-to-run packages are built by GitHub Actions and attached to each
 
 Each package bundles its own Java runtime — nothing else needs to be installed.
 
-## Install
+If you already have **Java 21 or newer**, every release also carries the plain jar, one per
+platform:
+
+| Platform              | File                                    |
+| --------------------- | --------------------------------------- |
+| Linux                 | `ParrotApp-<version>-linux.jar`         |
+| macOS (Apple silicon) | `ParrotApp-<version>-mac-aarch64.jar`   |
+| macOS (Intel)         | `ParrotApp-<version>-mac.jar`           |
+| Windows               | `ParrotApp-<version>-win.jar`           |
+
+They are the same application and any of them serves the web interface on any machine — they
+differ only in the native libraries the desktop status window needs, which a jar only ever
+opens if you ask for it (see [Plain jar](#plain-jar-your-own-java-runtime) below). Taking the
+one for your own machine is simply the way to have that option.
+
+## Run it
 
 > **Important — give ParrotApp a folder of its own.**
 > The application stores its data **beside itself**: the embedded
@@ -81,14 +96,15 @@ The `db/`, `thumbnails/` and `covers/` directories appear next to the AppImage o
 ### Plain jar (your own Java runtime)
 
 If you already have a **Java 21 or newer** runtime installed, the jar runs on its own — no
-packaged runtime, no installer. Check what you have with `java -version`.
+packaged runtime, nothing to install. Check what you have with `java -version`.
 
-Put the jar in a folder of its own, and start it **from inside that folder**:
+Put the jar in a folder of its own, and start it **from inside that folder** (`<platform>`
+being `linux`, `mac`, `mac-aarch64` or `win`):
 
 ```sh
 mkdir -p ~/Applications/ParrotApp
 cd ~/Applications/ParrotApp
-java -jar ParrotApp-<version>.jar
+java -jar ParrotApp-<version>-<platform>.jar
 ```
 
 The working directory matters here rather than the jar's location: run this way, ParrotApp
@@ -97,16 +113,20 @@ from your home directory scatters them across your home directory, and starting 
 somewhere else next time gives you a second, empty library — so `cd` into its folder first,
 every time. A one-line script or a shell alias is worth setting up.
 
-ParrotApp then serves on **`http://localhost:9999`**. Stop it with `Ctrl+C`; a plain jar has
-no status window and no Quit button, and logs go to the terminal it is running in. To use
-another port, add `--server.port=8080`.
+ParrotApp then serves on **`http://localhost:9999`**. Stop it with `Ctrl+C`; a plain jar shows
+no status window and no Quit button by default, and logs go to the terminal it is running in.
+To use another port, add `--server.port=8080`.
+
+Adding `-Dparrot.ui=true` before `-jar` opens the same status window the packages show — which
+is the one thing the jar you picked has to match your machine for, since each carries only its
+own platform's native libraries. On a machine with no display it is simply skipped.
 
 Updating is the same swap as anywhere else: replace the jar in the folder, keeping `db/`,
 `thumbnails/` and `covers/` where they are.
 
 ### Docker
 
-For a headless install — a home server or a NAS — there is a Compose setup in a repository
+For a headless setup — a home server or a NAS — there is a Compose setup in a repository
 of its own: **[ikiranis/parrotDocker](https://github.com/ikiranis/parrotDocker)**.
 
 ```sh
@@ -123,8 +143,8 @@ Edit `.env` and set:
   container's `9999`).
 - **`CONTAINER_NAME`** — the container's name (default `parrot-docker-app`).
 
-Then drop a ParrotApp jar in as `app/app.jar` — the image is built around it and it is not
-committed to the repository — and start it:
+Then drop a ParrotApp jar in as `app/app.jar` — the `linux` one, since the image is Linux; it
+is built around that jar and the jar is not committed to the repository — and start it:
 
 ```sh
 docker compose up -d --build
@@ -134,14 +154,14 @@ ParrotApp is then at `http://localhost:8888/` (or whichever `HOST_PORT` you chos
 `docker compose logs -f`, and `docker compose down` stops it; there is no status window in a
 container.
 
-Two things differ from a desktop install:
+Two things differ from a desktop copy:
 
 - **Use the container's paths when adding library folders.** Inside the container your media
   is at `/media/myMedia`, whatever its path on the host — that is what to type on the Library
   Folders page.
 - **The clone directory is the data directory.** `db/`, `thumbnails/` and `covers/` are
   bind-mounted out of it, so it is the folder to back up, exactly as the folder holding the
-  package is on a desktop install.
+  package is on a desktop copy.
 
 ## Update
 
@@ -169,7 +189,7 @@ rebuild with `docker compose up -d --build`. The bind-mounted `db/`, `thumbnails
 
 ## First run
 
-Started from a packaged installer, ParrotApp opens a small status window showing the address
+Started from one of the packages, ParrotApp opens a small status window showing the address
 it is serving on, the data directory in use and the console output, with a **Quit** button —
 click the address to open it. A plain jar or a container has no such window; it prints the
 same information to its console instead. Either way, open a browser at:
