@@ -50,7 +50,7 @@ Each package bundles its own Java runtime — nothing else needs to be installed
 ## Install
 
 > **Important — give ParrotApp a folder of its own.**
-> On Linux and macOS the application stores its data **beside itself**: the embedded
+> The application stores its data **beside itself**: the embedded
 > database, the thumbnails and the album covers are all created in the folder the package
 > sits in. Put the package in a dedicated, empty folder (for example
 > `~/Applications/ParrotApp/` or `D:\ParrotApp\`) and run it from there, so its data does
@@ -78,25 +78,107 @@ The `db/`, `thumbnails/` and `covers/` directories appear next to the AppImage o
    as coming from an unidentified developer. Right-click (or Control-click) the app and
    choose **Open**, then confirm — after that it opens normally.
 
-If the containing folder turns out not to be writable, ParrotApp falls back to
-`~/Library/Application Support/ParrotApp/`.
+### Plain jar (your own Java runtime)
 
-### Windows (exe)
+If you already have a **Java 21 or newer** runtime installed, the jar runs on its own — no
+packaged runtime, no installer. Check what you have with `java -version`.
 
-Run the installer. It is a per-user installation, and it offers a directory chooser — pick
-a folder of your own if you like. On Windows the data is **not** kept beside the program
-(an uninstall or an upgrade would delete it); it lives in
-`%LOCALAPPDATA%\apps4net\ParrotApp\` instead, and survives reinstalls.
+Put the jar in a folder of its own, and start it **from inside that folder**:
+
+```sh
+mkdir -p ~/Applications/ParrotApp
+cd ~/Applications/ParrotApp
+java -jar ParrotApp-<version>.jar
+```
+
+The working directory matters here rather than the jar's location: run this way, ParrotApp
+puts `db/`, `thumbnails/` and `covers/` in the directory you started it from. Starting it
+from your home directory scatters them across your home directory, and starting it from
+somewhere else next time gives you a second, empty library — so `cd` into its folder first,
+every time. A one-line script or a shell alias is worth setting up.
+
+ParrotApp then serves on **`http://localhost:9999`**. Stop it with `Ctrl+C`; a plain jar has
+no status window and no Quit button, and logs go to the terminal it is running in. To use
+another port, add `--server.port=8080`.
+
+Updating is the same swap as anywhere else: replace the jar in the folder, keeping `db/`,
+`thumbnails/` and `covers/` where they are.
+
+### Docker
+
+For a headless install — a home server or a NAS — there is a Compose setup in a repository
+of its own: **[ikiranis/parrotDocker](https://github.com/ikiranis/parrotDocker)**.
+
+```sh
+git clone https://github.com/ikiranis/parrotDocker.git
+cd parrotDocker
+cp .env.sample .env
+```
+
+Edit `.env` and set:
+
+- **`MEDIA_PATH`** — the host directory holding your media. It is mounted into the
+  container at `/media/myMedia`.
+- **`HOST_PORT`** — the port the app is published on (default `8888`, mapped to the
+  container's `9999`).
+- **`CONTAINER_NAME`** — the container's name (default `parrot-docker-app`).
+
+Then drop a ParrotApp jar in as `app/app.jar` — the image is built around it and it is not
+committed to the repository — and start it:
+
+```sh
+docker compose up -d --build
+```
+
+ParrotApp is then at `http://localhost:8888/` (or whichever `HOST_PORT` you chose). Logs are
+`docker compose logs -f`, and `docker compose down` stops it; there is no status window in a
+container.
+
+Two things differ from a desktop install:
+
+- **Use the container's paths when adding library folders.** Inside the container your media
+  is at `/media/myMedia`, whatever its path on the host — that is what to type on the Library
+  Folders page.
+- **The clone directory is the data directory.** `db/`, `thumbnails/` and `covers/` are
+  bind-mounted out of it, so it is the folder to back up, exactly as the folder holding the
+  package is on a desktop install.
+
+## Update
+
+Updating is just replacing the package — your library is not inside it.
+
+1. Quit ParrotApp (the **Quit** button, or close the status window).
+2. Download the new package from the [releases](../../releases) page.
+3. Drop it into the same folder, replacing the old one — the new `.AppImage` over the old
+   `.AppImage`, the new **ParrotApp.app** over the old bundle. On Linux, make the new file
+   executable again (`chmod +x`), since that flag does not survive the download.
+4. Start it.
+
+The `db/`, `thumbnails/` and `covers/` directories sit *beside* the package, not inside it,
+so they are untouched: your media, ratings, play counts, playlists and settings all carry
+over, and the database schema is brought up to date on the first start. Nothing needs to be
+rescanned.
+
+If you would rather keep the old version around, leave it in place and give the new one its
+own folder — but note that a fresh folder starts a fresh, empty library. To move an existing
+library across, copy `db/`, `thumbnails/` and `covers/` over with it.
+
+On Docker it is the same swap one level down: replace `app/app.jar` with the new one and
+rebuild with `docker compose up -d --build`. The bind-mounted `db/`, `thumbnails/` and
+`covers/` are outside the image, so they survive the rebuild untouched.
 
 ## First run
 
-Starting ParrotApp opens a small status window showing the address it is serving on, the
-data directory in use and the console output, with a **Quit** button. Click the address, or
-open a browser yourself at:
+Started from a packaged installer, ParrotApp opens a small status window showing the address
+it is serving on, the data directory in use and the console output, with a **Quit** button —
+click the address to open it. A plain jar or a container has no such window; it prints the
+same information to its console instead. Either way, open a browser at:
 
 ```
 http://localhost:9999
 ```
+
+(or `http://localhost:8888`, on the Docker setup's default port)
 
 The first thing the app asks for is a **registration** — the first account you create
 becomes the administrator. There is no default username or password, and once that account
