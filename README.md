@@ -230,3 +230,35 @@ Turning it back off hides the page and stops the catalogue sync.
   Both are off unless you enable them.
 - Uploads (music, and video-frame screenshots) go only into folders you have explicitly
   marked as writable.
+
+## API
+
+Everything the web interface does, it does over a REST API on the same port — so the library
+can just as well be driven by a script, a cron job or another client of your own.
+
+The full reference lives in **[apiDocumentation.md](apiDocumentation.md)**: every endpoint
+with its parameters, request and response schemas and examples, grouped by area — library
+folders, scanning, photos, videos, music, playlists and smart playlists, folders, search,
+thumbnails, media hashes, uploads, tag export/import, settings, users, logs and radio.
+
+A few things worth knowing before you start:
+
+- **Base URL** — `http://localhost:9999` (or whichever port you are serving on).
+- **Authentication** — stateless JWT bearer tokens. Log in at `POST /api/auth/login` with
+  your username and password, then send the token you get back as
+  `Authorization: Bearer <token>` on every other request. Tokens last 24 hours.
+- **Permissions** — reads are open to any authenticated user, as are the per-user actions
+  (ratings, view counts, playlists, queue, radio favourites). Everything administrative —
+  library folders, scanning, settings, users, deletes, uploads, the log — requires the
+  `ADMIN` role. A missing token is a **401**, an insufficient role a **403**.
+- **Errors** — a consistent JSON shape carrying `status`, `message`, `httpStatus` and a
+  timestamp.
+
+```sh
+TOKEN=$(curl -s -X POST http://localhost:9999/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"me","password":"secret"}' | jq -r .token)
+
+curl -s 'http://localhost:9999/api/photos/all?page=0&size=20' \
+  -H "Authorization: Bearer $TOKEN"
+```
