@@ -284,3 +284,13 @@ TOKEN=$(curl -s -X POST http://localhost:9999/api/auth/login \
 curl -s 'http://localhost:9999/api/photos/all?page=0&size=20' \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+## Support
+
+If ParrotApp is useful to you, you can support its development with a donation — one-off or
+monthly, in any amount you choose:
+
+[![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=rocean74%40gmail.com&currency_code=EUR&no_recurring=0)
+
+Bug reports and ideas are welcome too — [open an issue](https://github.com/ikiranis/ParrotApp/issues)
+or send them to <rocean74@gmail.com>.
