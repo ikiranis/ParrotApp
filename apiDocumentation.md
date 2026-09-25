@@ -638,6 +638,40 @@ Returns the application version as defined in the Maven POM (`project.version`).
 
 ---
 
+### GET /api/general/update
+
+Reports whether a release newer than the running version has been published in the project's GitHub repository, and what it contains.
+
+The check is made server-side (GitHub asks callers to identify themselves with a `User-Agent`, which a browser will not let a page set) and its result is cached for 6 hours, so calling this on every page load costs one outbound request per installation every few hours. Failures are cached for 30 minutes.
+
+A check that could not be made — no network, a rate-limited API, a repository with no releases, a tag that is not a version — is answered as "no update known" rather than as an error, with `latestVersion` null and `updateAvailable` false, so the caller renders unchanged.
+
+**Request:** none
+
+**Response:** `200 OK` — `UpdateCheckDTO`
+
+```json
+{
+  "currentVersion": "4.5.1",
+  "latestVersion": "4.6.0",
+  "updateAvailable": true,
+  "releaseName": "ParrotApp 4.6.0",
+  "releaseUrl": "https://github.com/ikiranis/ParrotApp/releases/tag/v4.6.0",
+  "publishedAt": "2026-08-24T15:33:54Z",
+  "assets": [
+    {
+      "name": "ParrotApp-4.6.0-x86_64.AppImage",
+      "downloadUrl": "https://github.com/ikiranis/ParrotApp/releases/download/v4.6.0/ParrotApp-4.6.0-x86_64.AppImage",
+      "size": 166827200
+    }
+  ]
+}
+```
+
+**Use case:** Turn the top bar's version number into a control that opens the update instructions once a newer release exists.
+
+---
+
 ### GET /api/general/stats
 
 Returns a snapshot of entity counts across the entire database: files (broken down by kind), tags, rated tags, total views, thumbnails, folders, library folders, and users.
@@ -1665,9 +1699,9 @@ user's rating and play count.
 | `size`     | int    | 50      | Page size                                                      |
 | `kind`     | string | —       | Restrict to `MUSIC` or `MUSIC_VIDEO`; omit for both            |
 | `source`   | string | —       | Restrict to one `MusicSource`: `REGULAR`, `LOSSLESS`, `VINYL`, `CDRIP`. `REGULAR` also matches legacy rows whose column is null |
-| `songName` | string | —       | Exact title match (case-insensitive), as produced by clicking a Title cell |
-| `artist`   | string | —       | Exact artist match (case-insensitive)                          |
-| `album`    | string | —       | Exact album name match (case-insensitive); matches through the track's `Album`, so a track with no album never matches |
+| `songName` | string | —       | Title substring match (case-insensitive), as produced by clicking a Title cell; `%` and `_` are matched literally |
+| `artist`   | string | —       | Artist substring match (case-insensitive)                      |
+| `album`    | string | —       | Album name substring match (case-insensitive) against the name the track is displayed under: the linked `Album`'s name, falling back to the track's own album-name tag, so music videos and tracks with no `Album` row match too |
 | `genre`    | string | —       | Exact genre match (case-insensitive)                           |
 | `year`     | int    | —       | Album release year; matches through the track's `Album`        |
 | `albumId`  | long   | —       | Only tracks linked to this album, used when opening one album from the album panes (matches by id, so two albums sharing a name stay distinct) |
@@ -1730,9 +1764,9 @@ dimension.
 ### GET /api/music/random
 
 Returns one track chosen uniformly at random from the whole library, so shuffle playback can draw
-from every page rather than only the tracks loaded in the client. The kind, source, and rating
-filters are honoured so shuffle draws from the same pool the toolbar defines; the per-field filters
-are not.
+from every page rather than only the tracks loaded in the client. The pick is narrowed by the same
+filters as `GET /api/music/all` (kind, source, rating, and the clicked-cell field filter), so a list
+narrowed to one artist, album, genre, or year keeps shuffling within that set.
 
 **Query parameters**
 
@@ -1740,6 +1774,11 @@ are not.
 |-------------|--------|---------|----------------------------------------------------------------|
 | `kind`      | string | —       | Restrict the random pick to `MUSIC` or `MUSIC_VIDEO`           |
 | `source`    | string | —       | Restrict the random pick to one `MusicSource`                  |
+| `songName`  | string | —       | Title substring match, as in `GET /api/music/all`              |
+| `artist`    | string | —       | Artist substring match, as in `GET /api/music/all`             |
+| `album`     | string | —       | Album name substring match, as in `GET /api/music/all`         |
+| `genre`     | string | —       | Exact genre match (case-insensitive)                           |
+| `year`      | int    | —       | Album release year; matches through the track's `Album`        |
 | `excludeId` | long   | —       | Media file id to exclude (the track already playing)          |
 | `rating`    | int    | —       | Rating the current user's tag must satisfy (0–5; `0` is unrated) |
 | `ratingOp`  | string | `eq`    | Rating comparison: `eq`, `gt`, `lt`, `gte`, `lte`              |
@@ -1895,6 +1934,100 @@ or is not a storable image; `404` when no album has that id.
 
 ---
 
+### GET /api/music/albums/{albumId}/download
+
+Downloads an album's own files as one zip, named `artist - album (year).zip` from the `Album` row. The
+library's files stay where the user put them, so an album's tracks can be scattered under a library
+folder; this hands them back as the album they are grouped into.
+
+Entries are named from the **database** rather than from the files — `<position> - <artist> - <title>`
+plus the file's own extension — because the stored metadata is what a metadata edit corrects. The
+position is padded to two digits, so an extractor lists the entries in sleeve order; tracks with no
+position come last and carry no number. A track the database knows neither an artist nor a title for
+keeps its file name. Two entries that would share a name get a `(1)` suffix. Entries are stored
+uncompressed, since audio files are already compressed.
+
+A single missing file is skipped (and logged as a warning), since the rest of the album is still what
+was asked for.
+
+**Response:** `200 OK` — `application/zip`, sent as an attachment. **Errors:** `404` when no album has
+that id, or none of its files is on disk.
+
+---
+
+### POST /api/music/{id}/cover
+
+Sets a **single's** cover from an uploaded image. Cover art normally hangs off the `Album`, so a track
+with no album row — a single — keeps its own cover on its `MusicTag` instead, and this is the endpoint
+that sets it. `MusicDetailDTO.coverId` reads the album's cover first and falls back to this one.
+
+It behaves exactly like the album cover upload: the image is stored as a new `Cover` row, the
+superseded one is deleted, and — only when `editTagsOnFiles` is enabled — the image is embedded as the
+front-cover artwork of the track's own file, which is then queued for a deferred hash refresh.
+
+**Request:** `multipart/form-data` with a single `file` part (an image, max 20 MB).
+
+**Response:** `200 OK` — `taggedFiles` is `0` or `1`, and always `0` when `editTagsOnFiles` is off.
+
+```json
+{ "trackId": 42, "coverId": 915, "taggedFiles": 1 }
+```
+
+**Errors:** `400` when the upload is unusable (as for the album upload), when the track belongs to an
+album (the album's cover takes precedence, so use the album endpoint), or when it is a music video
+(which has a frame thumbnail rather than a cover); `404` when the id has no media file or no music tag.
+
+---
+
+### GET /api/music/{id}/cover-candidates
+
+Searches the online cover providers for artwork for a single — the track counterpart of
+`GET /api/music/albums/{albumId}/cover-candidates`, with the same providers, response, and
+measurement of each candidate's size. A single often carries no album name, in which case its title is
+searched for instead, since that is how a single is catalogued.
+
+| Param    | Type   | Default                              | Description                        |
+| -------- | ------ | ------------------------------------ | ---------------------------------- |
+| `artist` | string | the track's artist                   | Artist to search for               |
+| `album`  | string | the track's album name, else its title | Release name to search for       |
+
+**Response:** `200 OK` — a possibly empty array of candidates. **Errors:** `400` when the track belongs
+to an album or is a music video, or nothing names it; `404` when the id has no media file or no music
+tag.
+
+---
+
+### POST /api/music/{id}/cover-from-url
+
+Sets a single's cover from a candidate picked out of a lookup — the track counterpart of
+`POST /api/music/albums/{albumId}/cover-from-url`, with the same host allowlist and redirect checks.
+The image is then stored exactly as an upload to `POST /api/music/{id}/cover` is.
+
+**Request body**
+
+```json
+{ "url": "https://coverartarchive.org/release/6f84…/1156386881-500.jpg" }
+```
+
+**Response:** `200 OK` — the same body as the single's cover upload. **Errors:** `400` when `url` is
+missing, not a supported provider address, could not be downloaded, or is not a storable image, and
+when the track belongs to an album or is a music video; `404` when the id has no media file or no music
+tag.
+
+---
+
+### GET /api/music/{id}/download
+
+Downloads one track's own file — not a zip of one — named `<artist> - <title>` plus the file's
+extension, from the database like the album archive's entries (without the position, which only orders
+an archive). A track the database knows neither an artist nor a title for keeps its file name. Works for
+any track, whether or not it belongs to an album.
+
+**Response:** `200 OK` — the file, sent as an attachment. **Errors:** `404` when the id has no media
+file or no music tag, or the file is not on disk.
+
+---
+
 ### POST /api/music/albums/merge
 
 Merges several albums into one, putting back together a release the scan split across separate album
@@ -1995,9 +2128,24 @@ enabled.
 
 The optional boolean `setSongsInAlbum` first pulls every selected track into the single `Album` that
 the plurality of them already belong to, before the field edits apply, unifying tracks the scan split
-across folders (or that carry no album at all). It is a database regrouping only: the tracks'
-`album_id` is reassigned, but their files' embedded album tags are not rewritten — type the album name
-into `album` to also change that on disk.
+across folders (or that carry no album at all). When **not one** of the selected tracks has an album,
+one is created instead: it is resolved through the same (path, name) folder key the scan uses, so it
+joins an existing album row of that key rather than adding a second one. Its name is the `album` value
+in the same request, falling back to the album name the tracks' own tags already agree on (the artist
+and year are chosen the same way). Only audio tracks take part, and a selection naming no album at all
+is left untouched. It is a database regrouping only: the tracks' `album_id` is reassigned, but their
+files' embedded album tags are not rewritten — type the album name into `album` to also change that
+on disk.
+
+The optional boolean `removeFromAlbum` is its opposite: every selected track is taken out of the album
+it sits under, which is how a track grouped under the wrong album is put back on its own. It also runs
+before the field edits, so an `album` name given alongside it still lands on the detached track's own
+tag. Only the link goes: the track keeps its album name on its own tag (taking a copy from the album it
+leaves when its tag had none), so it goes on showing that name — but the list's `album` and `year`
+filters join the album row, so neither finds it any more. An album left with **no tracks at all** is
+deleted along with its cover. Like the grouping, it is a database change only: no file is moved,
+renamed, or retagged, whatever `editTagsOnFiles` says. The two flags contradict each other and may not
+be combined.
 
 **Request body**
 
@@ -2006,7 +2154,8 @@ into `album` to also change that on disk.
 ```
 
 **Response:** `200 OK` — array of `MusicDetailDTO`, one per id in the order given. **Errors:** `400` when
-`ids` is missing or empty or `fields` is missing; `404` when any id has no media file or no music tag.
+`ids` is missing or empty, `fields` is missing, or `setSongsInAlbum` and `removeFromAlbum` are both set;
+`404` when any id has no media file or no music tag.
 
 ---
 
@@ -2026,6 +2175,67 @@ are deleted from disk best-effort. Album and cover rows are left in place.
 
 **Response:** `200 OK` — `{ "deleted": 3 }`. **Errors:** `400` when `ids` is missing or empty; `404`
 when any id has no media file or no music tag.
+
+---
+
+### GET /api/music/{id}/lyrics
+
+Returns a track's lyrics. Stored lyrics are returned as they are; for a track with none, the song is
+looked up online in **LRCLIB** (lrclib.net) by its title, artist, album, and duration, and a match is
+stored, so each track costs at most one online request. A song LRCLIB does not know is not stored, so
+lyrics added to its catalogue later can still be found, but it is remembered in memory for six hours.
+
+**Query parameters**
+
+| Parameter | Type    | Default | Description                                                         |
+|-----------|---------|---------|---------------------------------------------------------------------|
+| `refresh` | boolean | `false` | Ignore the stored lyrics and look the song up again. A new match replaces the stored row; "not found" deletes it |
+
+**LyricsDTO schema**
+
+| Field          | Type    | Description                                                                |
+|----------------|---------|----------------------------------------------------------------------------|
+| `found`        | boolean | Whether any match was found; `false` means LRCLIB does not know the song   |
+| `instrumental` | boolean | Whether the match is marked as an instrumental, with no lyrics to show     |
+| `plainLyrics`  | string  | Plain text, one line per line (derived from the synced form when that is all there is), or `null` |
+| `syncedLyrics` | string  | Lyrics in LRC form (`[mm:ss.xx] line`), or `null` when there are none      |
+| `trackName`    | string  | The title the match is catalogued under, or `null`                         |
+| `artistName`   | string  | The artist the match is catalogued under, or `null`                        |
+| `albumName`    | string  | The album the match is catalogued under, or `null`                         |
+| `source`       | string  | The provider the lyrics came from, for attribution                         |
+| `unsynced`     | boolean | Whether the synced lyrics are flagged as out of step with this recording   |
+
+**Response:** `200 OK` — `LyricsDTO` (with `found: false` when the song is not known). **Errors:** `404`
+when the track does not exist; `400` when the track has no title to search for, or LRCLIB could not be
+reached (so the client can offer to try again).
+
+---
+
+### PATCH /api/music/{id}/lyrics
+
+Flags or unflags a track's stored lyrics as out of step with its recording, for timed lyrics that
+belong to another version of the song. The flag is cleared whenever a new match replaces the stored
+lyrics. Requires `ADMIN`.
+
+**Request body**
+
+```json
+{ "unsynced": true }
+```
+
+**Response:** `200 OK` — the stored `LyricsDTO` carrying the new flag. **Errors:** `400` when
+`unsynced` is missing; `404` when the track does not exist or has no stored lyrics (flagging never
+triggers a lookup).
+
+---
+
+### POST /api/music/{id}/lyrics/unsynced/toggle
+
+Flips the out-of-step flag on a track's stored lyrics. This is what the player's **0** shortcut calls,
+since the player does not know the flag's current state. Requires `ADMIN`.
+
+**Response:** `200 OK` — the stored `LyricsDTO` carrying the new flag. **Errors:** `404` when the track
+does not exist or has no stored lyrics.
 
 ---
 
@@ -3125,13 +3335,16 @@ while the directory is down.
 A stream itself is still not library content: it has no `MediaFile`, tag, hash, thumbnail, or play
 count.
 
-Two endpoints do leave the building per request, because neither can be answered from a database:
-`POST /stations/{id}/click` (the usage report the directory asks for) and
-`GET /stations/{id}/now-playing` (the title is broadcast inside the audio stream).
+Some endpoints do leave the building per request, because they cannot be answered from a database:
+`POST /stations/{id}/click` (the usage report the directory asks for),
+`GET /stations/{id}/now-playing` (the title is broadcast inside the audio stream),
+`GET /stations/{id}/stream` (the audio itself, relayed so the page can analyse it), and
+`POST /stations/{id}/recording` (the server opens its own connection to the station to record it).
 
 Reads require an authenticated user of any role. Favouriting and the click report are `POST`/`DELETE`
 but are likewise allowed for any authenticated user — they are ordinary listening actions, scoped to
-the caller. Triggering a catalogue sync is administration and requires `ADMIN`.
+the caller. Triggering a catalogue sync and starting or stopping a recording (which writes a file into
+the library) are administration and require `ADMIN`.
 
 **The whole section is gated on the `radioEnabled` setting, which is `false` by default.** Radio is
 the one feature that reaches a third-party service on its own — the catalogue crawl runs in the
@@ -3211,6 +3424,57 @@ authenticated user.
 **Response** `200 OK` — the `RadioStation`, with `favorite: false`. **404** when the catalogue holds no
 such station.
 
+### GET /api/radio/favorites/export
+
+Exports the radio favourites of **every** user as one JSON file, for backing them up or moving them
+to another installation. Requires `ADMIN`, since it covers the whole installation rather than the
+caller — an ordinary user reads their own favourites through the station listing.
+
+The station catalogue itself is not exported: every installation rebuilds it by crawling the
+directory, so the file carries only what exists nowhere else — who favourited which station, named by
+the directory's own uuid, and when. Nothing describing the station travels with it; an import looks
+the uuid up in its own catalogue.
+
+**RadioFavoriteExport schema**
+
+| Field           | Type    | Description                                              |
+|-----------------|---------|----------------------------------------------------------|
+| `exportedAt`    | string  | ISO-8601 timestamp of when the export was produced        |
+| `userCount`     | integer | Number of users the export carries favourites for         |
+| `favoriteCount` | integer | Total number of favourites across all of them             |
+| `users`         | array   | One section per user: `username` and its `favorites` list |
+
+Each entry of `favorites` carries `stationUuid` and `favoritedAt`.
+
+**Response** `200 OK` — a `RadioFavoriteExport`.
+
+### POST /api/radio/favorites/import
+
+Applies an uploaded favourites export to this installation. Requires `ADMIN`. Multipart, with the
+file in the `file` part.
+
+The import **merges**: it adds the favourites the file names and leaves every other one alone, so it
+is safe to run twice and an older file never removes a favourite marked since it was written. Users
+are matched by username and stations by uuid. A username this installation has no user for is
+reported rather than created — a user record carries a password and a role — and so is a uuid its
+catalogue does not hold, most often a station the crawl has not reached yet, which running the same
+file again later picks up. Unlike the library tag import there is no background job: favourites are
+hundreds of rows, so the request answers when the work is done.
+
+**RadioFavoriteImportResult schema**
+
+| Field              | Type    | Description                                                        |
+|--------------------|---------|---------------------------------------------------------------------|
+| `users`            | integer | Users in the file that matched a user of this installation          |
+| `added`            | integer | Favourites created                                                  |
+| `alreadyPresent`   | integer | Favourites the file names that the user already had                 |
+| `stationsMissing`  | integer | Favourites dropped: the catalogue holds no station of that uuid     |
+| `skippedEntries`   | integer | Entries dropped as unusable, naming no station uuid at all          |
+| `unknownUsernames` | array   | Usernames the installation has no user for, left out entirely       |
+
+**Response** `200 OK` — a `RadioFavoriteImportResult`. **400** when no file is sent, it is too large,
+or it does not parse as a favourites export.
+
 ### GET /api/radio/sync
 
 Returns the state of the catalogue crawl: whether a batch is running, how far the current pass has
@@ -3287,6 +3551,28 @@ Returns the broadcast languages that have stations, most stations first, for the
 
 **Response** `200 OK` — an array of `RadioFilterOption`.
 
+### GET /api/radio/stations/{stationId}/stream
+
+Relays the station's audio through the application, so the browser fetches it from the same origin
+rather than from the station. This is what lets the player's spectrum visualizer read the audio: a
+media element fed a cross-origin stream the station has not CORS-approved outputs **silence** once it
+is routed through Web Audio, and stations practically never send the headers that would allow it. It
+also avoids mixed-content blocking, since many catalogue entries are plain HTTP.
+
+The station is resolved from its uuid through the local catalogue, so only a stream the catalogue holds
+is ever connected to. The server speaks to the station over a raw socket (HTTP/1.0, so the body is never
+chunked), which is what lets Shoutcast v1 stations answering `ICY 200 OK` play too. No ICY metadata is
+requested, so the audio arrives without title blocks interleaved in it; the title is read separately by
+`now-playing`. Redirects are followed.
+
+The response is streamed for as long as the listener keeps listening, and ends when either side
+closes. `Content-Type` is the station's own when it is a plain `type/subtype` value, and a default audio
+type otherwise; `Cache-Control: no-store` and `Accept-Ranges: none` are always set, since a live stream
+has no length or position to seek to. Allowed for any authenticated user.
+
+**Response** `200 OK` — the audio stream. **Errors:** `404` when the catalogue holds no such station, it
+has no stream URL, or it cannot be reached.
+
 ### GET /api/radio/stations/{stationId}/now-playing
 
 Returns what the station is broadcasting right now, read live from the stream's own ICY
@@ -3326,6 +3612,52 @@ Always answers `204`: the report is a courtesy to the directory and a failure is
 client never has to handle an error for a stream that is already playing.
 
 **Response** `204 No Content`.
+
+### GET /api/radio/recording
+
+Reports whether the caller has a recording running, and of which station. A recording is made by the
+server, so it outlives the page that started it; this is what lets a freshly loaded tab show the
+record button already lit.
+
+**RadioRecordingDTO schema**
+
+| Field         | Type    | Description                                                                  |
+|---------------|---------|------------------------------------------------------------------------------|
+| `recording`   | boolean | Whether a recording is currently running                                     |
+| `stationId`   | string  | The uuid of the station being (or that was) recorded, or `null`              |
+| `stationName` | string  | That station's name, or `null`                                               |
+| `startedAt`   | string  | When the recording started (ISO-8601 instant), or `null`                     |
+| `bytes`       | long    | Bytes captured so far, or the finished file's size                           |
+| `seconds`     | long    | How long the recording has run                                               |
+| `filename`    | string  | The name the finished recording was stored under; `null` while one runs      |
+| `destination` | string  | The finished file's path relative to its library folder root; `null` while one runs |
+
+**Response** `200 OK` — a `RadioRecordingDTO` (with `recording: false` when none is running).
+
+### POST /api/radio/stations/{stationId}/recording
+
+Starts recording the station into the music library. The server records over a connection of its
+own, not the stream the caller is listening to, so stopping playback, switching station, or closing
+the tab leaves the recording running. The stream is written as it arrives, without re-encoding, and
+the file extension follows the content type the station declares. Each user can run one recording at
+a time; a recording stops capturing after 2 GB or 6 hours, and what was captured is kept for the stop
+request. Requires `ADMIN`.
+
+**Response** `200 OK` — the started `RadioRecordingDTO`. **Errors:** `404` when the catalogue holds no
+such station, or it cannot be reached; `400` when the caller is already recording, or no writable
+`MUSIC` library folder is configured.
+
+### POST /api/radio/recording/stop
+
+Stops the caller's recording and stores it under `recordings/yyyy/MM/dd` in the writable `MUSIC`
+library folder, named `<station> - <Artist - Song> - <yyyy-MM-dd HH-mm-ss>` from the moment it started
+(the song part is the broadcast title read at the start, left out when there is none). The file is
+then indexed straight away, so it appears in the Music view without waiting for a scan. Requires
+`ADMIN`.
+
+**Response** `200 OK` — the saved `RadioRecordingDTO`, carrying `filename` and `destination`.
+**Errors:** `400` when no recording is running, nothing was captured (the empty file is deleted), or
+the file could not be stored.
 
 **Use case:** Back the **Radio** page, which browses the mirrored catalogue by name, country, genre,
 language, and favourites. The picked stream is handed to the application's single persistent player — the same one the
