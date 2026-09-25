@@ -20,11 +20,12 @@ from a locally mirrored station directory.
   for images and a shuffleable playlist for videos, both with star ratings.
 - **Music** — audio tracks and music videos with a persistent player that keeps playing as
   you move around the app, shuffle and sequential playback, a per-user play queue,
-  user-defined playlists, album grid and coverflow browsing, editable metadata, album cover
-  upload and online cover lookup, and a spectrum visualizer.
+  user-defined playlists, album grid and coverflow browsing, editable metadata, cover art
+  for albums and singles (upload or online lookup), album and track downloads, online lyrics
+  with timed full-screen subtitles, and a spectrum visualizer.
 - **Radio** *(off by default)* — internet radio from the radio-browser.info directory,
-  mirrored locally so browsing stays fast, with per-user favourites, a retro tuner dial and
-  a live spectrum display.
+  mirrored locally so browsing stays fast, with per-user favourites, a retro tuner dial,
+  a live spectrum display, and recording of a station straight into your music library.
 - **Duplicate detection** — content hashing finds duplicate files and groups them for review.
 - **Geolocation map** — geotagged photos plotted on an interactive map, clustered by
   proximity and reverse-geocoded to place names.
@@ -230,7 +231,7 @@ records.
 ## Enable Radio
 
 The Radio page is **off by default**, and deliberately so: it is the one feature that talks
-to a third party (the public radio-browser.info directory), and it keeps its station
+to a third party on its own (the public radio-browser.info directory), and it keeps its station
 catalogue up to date in the background whether or not the page is open. An installation
 that only wants its own library makes no request on its behalf.
 
@@ -250,8 +251,13 @@ Turning it back off hides the page and stops the catalogue sync.
   exceptions on the Settings page: *Edit tags on files*, which writes corrected music
   metadata and cover art back into your audio files, and the file renaming that follows it.
   Both are off unless you enable them.
-- Uploads (music, and video-frame screenshots) go only into folders you have explicitly
-  marked as writable.
+- Uploads (music, and video-frame screenshots) and radio recordings go only into folders
+  you have explicitly marked as writable.
+- Apart from Radio, ParrotApp contacts outside services only in these cases: the online
+  cover lookup (MusicBrainz / Cover Art Archive, iTunes) and the lyrics lookup (LRCLIB), both
+  made only when you ask for them and sending only the track or album being searched for;
+  and the update check, a plain read of this project's latest GitHub release, made when a
+  page loads and cached, which sends nothing about your library.
 
 ## API
 
@@ -271,8 +277,9 @@ A few things worth knowing before you start:
   `Authorization: Bearer <token>` on every other request. Tokens last 24 hours.
 - **Permissions** — reads are open to any authenticated user, as are the per-user actions
   (ratings, view counts, playlists, queue, radio favourites). Everything administrative —
-  library folders, scanning, settings, users, deletes, uploads, the log — requires the
-  `ADMIN` role. A missing token is a **401**, an insufficient role a **403**.
+  library folders, scanning, settings, users, edits, deletes, uploads, radio recording, the
+  log — requires the `ADMIN` role. A missing token is a **401**, an insufficient role a
+  **403**.
 - **Errors** — a consistent JSON shape carrying `status`, `message`, `httpStatus` and a
   timestamp.
 
@@ -294,3 +301,8 @@ monthly, in any amount you choose:
 
 Bug reports and ideas are welcome too — [open an issue](https://github.com/ikiranis/ParrotApp/issues)
 or send them to <rocean74@gmail.com>.
+
+## Changelog
+
+What changed in each release is listed in **[changelog.md](changelog.md)**, newest version
+first.
